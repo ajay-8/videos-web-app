@@ -52,7 +52,7 @@ const userSchema = new Schema(
     }
 )
 
-
+// 'pre' hook used to encode password before saving.
 userSchema.pre('save', async function (next) {
     if (this.isModified("password")) {
         this.password = await bcrypt.hash(this.password, 10)
@@ -62,10 +62,13 @@ userSchema.pre('save', async function (next) {
     
 })
 
+
+// custom method to check password
 userSchema.methods.isPasswordCorrect = async function(password) {
     return await bcrypt.compare(password, this.password)
 }
 
+// custom methods to generate access token and refresh token
 userSchema.methods.generateAccessToken = function () {
     jwt.sign(
         {
