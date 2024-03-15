@@ -1,9 +1,29 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
-// import {ApiError} from "../utils/ApiError.js"
+import {ApiError} from "../utils/ApiError.js"
 import { User} from "../models/user.model.js"
 import { uploadOnCloudinary } from "../utils/fileUploads.js"
 // import { ApiResponse } from "../utils/ApiResponse.js";
 import { emailValidator } from "../validators/email.validator.js";
+
+
+const generateAccessAndRefereshTokens = async (userId) => {
+
+    try {
+
+        const userObj = await User.findById(userId);
+        const accessToken = userObj.generateAccessToken();
+        const refreshToken = userObj.generateRefreshToken();
+    
+        userObj.refreshToken = refreshToken
+    
+        // validateBeforeSave set to false as it ensures that no validation should work while saving the object.
+        await userObj.save({ validateBeforeSave: false })
+    
+        return {accessToken, refreshToken}
+    } catch (error) {
+        throw new ApiError(500, `${error}`)
+    }
+}
 
 
 const registerUser = asyncHandler( async (req, res) => {
@@ -98,4 +118,86 @@ const registerUser = asyncHandler( async (req, res) => {
 
 })
 
-export { registerUser, };
+const loginUser = asyncHandler( async (req, res) => {
+
+    const {email, password} = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({
+            message: "Please provide valid email and password."
+        })
+    }
+
+    const user = await User.findOne({ email })
+
+    if (!user) {
+        res.status(400).json({
+            message: "User does not exist."
+        })
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password)
+
+    if (!isPasswordValid) {
+        res.status(400).json({
+            message: "Invalid user credentials."
+        })
+    }
+
+    const {accessToken, refreshToken} = generateAccessAndRefereshTokens(user._id)
+
+    const loggerInUser = await User.findById(user._id).select("-password -refreshToken")
+
+    // (httpOnly and secure) set to true so that only server can edit the cookies.
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200).cookie(
+        "accessToken", accessToken, options
+    ).cookie(
+        "refreshToken", refreshToken, options
+    ).json({
+        message: "User logged in Successfully.",
+        data: loggerInUser
+    })
+
+
+})
+
+const logoutUser = asyncHandler( async (req, res) => {
+    const user = req.user
+
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $unset: {
+                refreshToken: 1 // this removes the field from document
+            }
+        },
+        {
+            new: true
+        }
+    )
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200).clearCookie(
+        "accessToken", options
+    ).clearCookie(
+        "refreshToken", options
+    ).json({
+        message: "User logged out successfully."
+    })
+})
+
+
+export { 
+    registerUser,
+    loginUser,
+    logoutUser,
+};
