@@ -4,6 +4,7 @@ import { User} from "../models/user.model.js"
 import { uploadOnCloudinary } from "../utils/fileUploads.js"
 // import { ApiResponse } from "../utils/ApiResponse.js";
 import { emailValidator } from "../validators/email.validator.js";
+import jwt from "jsonwebtoken"
 
 
 const generateAccessAndRefereshTokens = async (userId) => {
@@ -20,6 +21,7 @@ const generateAccessAndRefereshTokens = async (userId) => {
         await userObj.save({ validateBeforeSave: false })
     
         return {accessToken, refreshToken}
+
     } catch (error) {
         throw new ApiError(500, `${error}`)
     }
@@ -122,7 +124,7 @@ const loginUser = asyncHandler( async (req, res) => {
 
     const {email, password} = req.body;
 
-    if (!email || !password) {
+    if ( !(email || password) ) {
         return res.status(400).json({
             message: "Please provide valid email and password."
         })
@@ -144,9 +146,9 @@ const loginUser = asyncHandler( async (req, res) => {
         })
     }
 
-    const {accessToken, refreshToken} = generateAccessAndRefereshTokens(user._id)
+    const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
 
-    const loggerInUser = await User.findById(user._id).select("-password -refreshToken")
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
 
     // (httpOnly and secure) set to true so that only server can edit the cookies.
     const options = {
@@ -160,7 +162,7 @@ const loginUser = asyncHandler( async (req, res) => {
         "refreshToken", refreshToken, options
     ).json({
         message: "User logged in Successfully.",
-        data: loggerInUser
+        data: loggedInUser, accessToken, refreshToken
     })
 
 
@@ -170,7 +172,7 @@ const logoutUser = asyncHandler( async (req, res) => {
     const user = req.user
 
     await User.findByIdAndUpdate(
-        req.user._id,
+        user._id,
         {
             $unset: {
                 refreshToken: 1 // this removes the field from document
@@ -195,9 +197,58 @@ const logoutUser = asyncHandler( async (req, res) => {
     })
 })
 
+const refreshAccessToken = asyncHandler( async (req, res) => {
+
+    const userRefreshToken = req.cookies?.refreshToken || req.header("refreshToken");
+
+    if ( !userRefreshToken ) {
+        res.status(401).json({
+            message: "Please provide refresh token."
+        })
+    }
+
+    try {
+        const userDecodedRefreshToken = jwt.verify(userRefreshToken, process.env.REFRESH_TOKEN_SECRET_KEY)
+    
+        const user = await User.findById(userDecodedRefreshToken?._id);
+    
+        if ( !user ) {
+            res.status(401).json({
+                message: "Invalid refresh token!"
+            })
+        }
+    
+        const options = {
+            httpOnly: true,
+            secure: true
+        }
+    
+        const { accessToken, refreshToken: newRefreshToken } = await generateAccessAndRefereshTokens(user._id)
+        console.log(accessToken, newRefreshToken)
+    
+        return res.status(200).cookie(
+            "accessToken", accessToken, options
+        ).cookie(
+            "refreshToken", newRefreshToken, options
+        ).json({
+            message: "User token regenerated.",
+            data: {
+                accessToken, newRefreshToken
+            }
+        })
+    } catch (error) {
+        console.log(error?.message)
+        res.status(400).json({
+            message: "unable to regenerate refresh token"
+        })
+    }
+
+
+})
 
 export { 
     registerUser,
     loginUser,
     logoutUser,
+    refreshAccessToken,
 };
