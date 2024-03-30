@@ -28,8 +28,23 @@ const uploadOnCloudinary = async (localFilePath) => {
         fs.unlinkSync(localFilePath) // remove the locally saved temporary file as the upload operation got failed.
         return null;
     }
+}   
+
+
+const deleteImageOnCloudinary = async (filePath) => {
+    try {
+        if (!filePath) return null
+        //delete the file on cloudinary
+        const response = await cloudinary.uploader.destroy(filePath);
+        if (response?.result === "ok") {
+            console.log("Avatar image removed from cloudinary seccessfully.")
+        } else {
+            console.log(`unable to remove avatar due to ${response}`)
+        }
+    } catch (error) {
+        console.log(error?.message)
+    }
 }
 
 
-
-export {uploadOnCloudinary}
+export {uploadOnCloudinary, deleteImageOnCloudinary}

@@ -1,7 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {ApiError} from "../utils/ApiError.js"
 import { User} from "../models/user.model.js"
-import { uploadOnCloudinary } from "../utils/fileUploads.js"
+import { uploadOnCloudinary, deleteImageOnCloudinary } from "../utils/cloudinary.js"
 // import { ApiResponse } from "../utils/ApiResponse.js";
 import { emailValidator } from "../validators/email.validator.js";
 import jwt from "jsonwebtoken"
@@ -26,7 +26,6 @@ const generateAccessAndRefereshTokens = async (userId) => {
         throw new ApiError(500, `${error}`)
     }
 }
-
 
 const registerUser = asyncHandler( async (req, res) => {
 
@@ -246,9 +245,185 @@ const refreshAccessToken = asyncHandler( async (req, res) => {
 
 })
 
+const changeCurrentPassword = asyncHandler( async (req, res) => {
+    try {
+        const {oldPassword, newPassword1, newPassword2} = res.body;
+    
+        if (newPassword1 != newPassword2) {
+            return res.status(400).json({
+                message: "password mismatched."
+            })
+        };
+        
+        const user = User.findById(req.user?._id);
+        const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
+    
+        if (!isPasswordCorrect) {
+            return res.status(400).json({
+                message: "Incorrect password!!"
+            })
+        };
+    
+        user.password = newPassword1;
+        await user.save({validateBeforeSave: false})
+    
+        return res.status(200).json({
+            message: "Password changed successfully."
+        })
+    } catch (error) {
+        console.log(error?.message)
+        return res.status(400).json({
+            message: "unable to update user password."
+        })
+    }
+})
+
+const getCurrentUser = asyncHandler( async(req, res) => {
+    return res.status(200).json({
+        message: "user fetched successfully.",
+        data: req.user
+    })
+})
+
+const updateUserDetails = asyncHandler( async (req, res) => {
+
+    try {
+        const {fullName, username} = res.body;
+    
+        if (!fullName || !username) {
+            return res.status(400).json({
+                message: "Please provide username and fullname."
+            })
+        }
+    
+        const existedUsername = await User.findOne({ username: username });
+    
+        if (existedUsername) {
+            return res.status(400).json({
+                message: "username already taken."
+            })
+        }
+    
+        const existedFullname = await User.findOne({ fullName: fullName });
+    
+        if (existedFullname) {
+            return res.status(400).json({
+                message: "fullname already taken."
+            })
+        }
+    
+        const user = await User.findByIdAndUpdate(
+            req.user?._id,
+            {
+                $set: {
+                    fullName,
+                    username
+                }
+            },
+            {new: true}
+        ).select("-password, -refreshToken")
+    
+        return res.status(200).json({
+            message: "user details updated.",
+            data: user
+        })
+
+    } catch (error) {
+        console.log(error?.message)
+        return res.status(400).json({
+            message: "unable to update user details"
+        })
+    }
+})
+
+const updateUserAvatar = asyncHandler( async (req, res)=> {
+
+    try {
+        const avatarLocalPath = req.file?.path;
+    
+        if (!avatarLocalPath) {
+            return res.status(400).json({
+                message: "Please provide avatar image."
+            })
+        }
+    
+        const user = User.findById(req.user?._id);
+    
+        const ExistedAvatarImage = user.avatar;
+
+        await deleteImageOnCloudinary(ExistedAvatarImage);
+    
+        // upload images on cloudinary
+        const updatedAvatar = await uploadOnCloudinary(avatarLocalPath);
+        if (!updatedAvatar) {
+            res.status(500).json({
+                message: "Error occurred while uploading avatar file on cloudinary."
+            })
+        }
+    
+        user.avatar = updatedAvatar;
+        await user.save({validateBeforeSave: false})
+    
+        return res.status(200).json({
+            message: "user avatar updated successfully.",
+            data: user.select('-password, -refreshToken')
+        })
+    } catch (error) {
+        console.log(error?.message)
+        return res.status(400).json({
+            message: "unable to update user avatar",
+        })
+    }
+})
+
+const updateUserCoverImage = asyncHandler( async (req, res)=> {
+
+    try {
+        const coverImageLocalPath = req.file?.path;
+    
+        if (!coverImageLocalPath) {
+            return res.status(400).json({
+                message: "Please provide cover image."
+            })
+        }
+    
+        const user = User.findById(req.user?._id);
+    
+        const ExistedCoverImage = user.coverImage;
+
+        await deleteImageOnCloudinary(ExistedCoverImage);
+    
+        // upload images on cloudinary
+        const updatedCoverImage = await uploadOnCloudinary(coverImageLocalPath);
+        if (!updatedCoverImage) {
+            res.status(500).json({
+                message: "Error occurred while uploading cover image file on cloudinary."
+            })
+        }
+    
+        user.coverImage = updatedCoverImage;
+        await user.save({validateBeforeSave: false})
+    
+        return res.status(200).json({
+            message: "user cover image updated successfully.",
+            data: user.select('-password, -refreshToken')
+        })
+    } catch (error) {
+        console.log(error?.message)
+        return res.status(400).json({
+            message: "unable to update user cover image",
+        })
+    }
+})
+
 export { 
     registerUser,
     loginUser,
     logoutUser,
     refreshAccessToken,
+    changeCurrentPassword,
+    getCurrentUser,
+    updateUserDetails,
+    updateUserAvatar,
+    updateUserCoverImage
 };
