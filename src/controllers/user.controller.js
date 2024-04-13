@@ -247,7 +247,7 @@ const refreshAccessToken = asyncHandler( async (req, res) => {
 
 const changeCurrentPassword = asyncHandler( async (req, res) => {
     try {
-        const {oldPassword, newPassword1, newPassword2} = res.body;
+        const {oldPassword, newPassword1, newPassword2} = req.body;
     
         if (newPassword1 != newPassword2) {
             return res.status(400).json({
@@ -255,7 +255,7 @@ const changeCurrentPassword = asyncHandler( async (req, res) => {
             })
         };
         
-        const user = User.findById(req.user?._id);
+        const user = await User.findById(req.user?._id);
         const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
     
         if (!isPasswordCorrect) {
@@ -288,14 +288,20 @@ const getCurrentUser = asyncHandler( async(req, res) => {
 const updateUserDetails = asyncHandler( async (req, res) => {
 
     try {
-        const {fullName, username} = res.body;
-    
-        if (!fullName || !username) {
+        const {fullName, username} = req.body;
+
+        // if (!fullName || !username) {
+        //     return res.status(400).json({
+        //         message: "Please provide username and fullname."
+        //     })
+        // }
+        if (!(fullName || username)) {
             return res.status(400).json({
-                message: "Please provide username and fullname."
+                message: "Please provide either username and fullName or both."
             })
         }
-    
+        
+        // restrict user to change username if given username already in use by another user
         const existedUsername = await User.findOne({ username: username });
     
         if (existedUsername) {
@@ -303,14 +309,14 @@ const updateUserDetails = asyncHandler( async (req, res) => {
                 message: "username already taken."
             })
         }
+
+        // const existedFullname = await User.findOne({ fullName: fullName });
     
-        const existedFullname = await User.findOne({ fullName: fullName });
-    
-        if (existedFullname) {
-            return res.status(400).json({
-                message: "fullname already taken."
-            })
-        }
+        // if (existedFullname) {
+        //     return res.status(400).json({
+        //         message: "fullname already taken."
+        //     })
+        // }
     
         const user = await User.findByIdAndUpdate(
             req.user?._id,
@@ -321,8 +327,8 @@ const updateUserDetails = asyncHandler( async (req, res) => {
                 }
             },
             {new: true}
-        ).select("-password, -refreshToken")
-    
+        ).select("-password -refreshToken")
+
         return res.status(200).json({
             message: "user details updated.",
             data: user
@@ -340,38 +346,53 @@ const updateUserAvatar = asyncHandler( async (req, res)=> {
 
     try {
         const avatarLocalPath = req.file?.path;
-    
+
         if (!avatarLocalPath) {
             return res.status(400).json({
                 message: "Please provide avatar image."
             })
         }
-    
-        const user = User.findById(req.user?._id);
-    
-        const ExistedAvatarImage = user.avatar;
 
-        await deleteImageOnCloudinary(ExistedAvatarImage);
-    
-        // upload images on cloudinary
+        const requestedUser = await User.findById(req.user?._id);
+        const ExistedAvatarImage = requestedUser.avatar;
+
+        // upload new avatar image on cloudinary first and then delete the previous avatar image
         const updatedAvatar = await uploadOnCloudinary(avatarLocalPath);
         if (!updatedAvatar) {
             res.status(500).json({
                 message: "Error occurred while uploading avatar file on cloudinary."
             })
         }
-    
-        user.avatar = updatedAvatar;
-        await user.save({validateBeforeSave: false})
-    
+
+        // delete previous avatar file from cloudinary
+        const deletedAvatarResponse = await deleteImageOnCloudinary(ExistedAvatarImage);
+
+        if (deletedAvatarResponse === 'error') {
+            console.log("Error occurred while deleting avatar file from cloudinary.")
+            return res.status(400).json({
+                message: "unable to update user avatar"
+            })
+        }
+
+        // updating user object with the new uploaded avatar image
+        const user = await User.findByIdAndUpdate(
+            req.user?._id,
+            {
+                $set: {
+                    avatar: updatedAvatar?.url || ""
+                }
+            },
+            {new: true}
+        ).select("-password -refreshToken")
+
         return res.status(200).json({
             message: "user avatar updated successfully.",
-            data: user.select('-password, -refreshToken')
+            data: user
         })
     } catch (error) {
         console.log(error?.message)
         return res.status(400).json({
-            message: "unable to update user avatar",
+            message: "Exception occurred while updating user avatar.",
         })
     }
 })
@@ -387,33 +408,131 @@ const updateUserCoverImage = asyncHandler( async (req, res)=> {
             })
         }
     
-        const user = User.findById(req.user?._id);
+        const requestedUser = User.findById(req.user?._id);
     
-        const ExistedCoverImage = user.coverImage;
+        const ExistedCoverImage = requestedUser.coverImage;
 
-        await deleteImageOnCloudinary(ExistedCoverImage);
-    
-        // upload images on cloudinary
+        // upload new cover image on cloudinary first and then delete the previous cover image
         const updatedCoverImage = await uploadOnCloudinary(coverImageLocalPath);
         if (!updatedCoverImage) {
             res.status(500).json({
-                message: "Error occurred while uploading cover image file on cloudinary."
+                message: "Error occurred while uploading coverImage file on cloudinary."
+            })
+        }
+
+        // delete previous coverImage file from cloudinary
+        const deletedCoverImageResponse = await deleteImageOnCloudinary(ExistedCoverImage);
+
+        if (deletedCoverImageResponse === 'error') {
+            console.log("Error occurred while deleting coverImage file from cloudinary.")
+            return res.status(400).json({
+                message: "unable to update user coverImage"
             })
         }
     
-        user.coverImage = updatedCoverImage;
-        await user.save({validateBeforeSave: false})
+        // updating user object with the new uploaded cover image
+        const user = await User.findByIdAndUpdate(
+            req.user?._id,
+            {
+                $set: {
+                    coverImage: updatedCoverImage?.url || ""
+                }
+            },
+            {new: true}
+        ).select("-password -refreshToken")
     
         return res.status(200).json({
             message: "user cover image updated successfully.",
-            data: user.select('-password, -refreshToken')
+            data: user
         })
     } catch (error) {
         console.log(error?.message)
         return res.status(400).json({
-            message: "unable to update user cover image",
+            message: "Exception occurred while updating user cover image.",
         })
     }
+})
+
+const getUserProfile = asyncHandler( async (req, res) => {
+    const { username } = req.params;
+    console.log(req.params)
+    // const { username } = req.body;
+
+    if ( !username?.trim() ) {
+        return res.status(400).json({
+            message: "invalid username!!"
+        })
+    }
+
+    const userProfile = await User.aggregate([
+        {
+            $match: {
+                username: username?.toLowerCase(),
+            }
+        },
+        {
+            $lookup: {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "channel",
+                as: "subscribers"
+            }
+        },
+        {
+            $lookup: {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "subscribedTo"
+            }
+        },
+        {
+            $addFields: {
+                subscribersCount: {
+                    $size: "$subscribers"
+                },
+                subscribedToCount: {
+                    $size: "$subscribedTo"
+                },
+                isSubscribed: {
+                    $cond: {
+                        if: {$in: [req.user?._id, "$subscribers.subscriber"]},
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+        {
+            $project: {
+                username: 1,
+                fullName: 1,
+                avatar: 1,
+                coverImage: 1,
+                createdAt: 1,
+                subscribersCount: 1,
+                subscribedToCount: 1,
+                isSubscribed: 1
+            }
+        }
+    ])
+
+    // console.log(userProfile)
+
+    if (!userProfile) {
+        return res.status(404).json({
+            message: "user does not exists."
+        })
+    }
+
+    return res.status(200).json({
+        message: "ok",
+        data: userProfile
+    })
+})
+
+const getWatchHistory = asyncHandler( async( req, res) => {
+
 })
 
 export { 
@@ -425,5 +544,7 @@ export {
     getCurrentUser,
     updateUserDetails,
     updateUserAvatar,
-    updateUserCoverImage
+    updateUserCoverImage,
+    getUserProfile,
+    getWatchHistory
 };

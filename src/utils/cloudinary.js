@@ -3,6 +3,7 @@
 
 import {v2 as cloudinary} from 'cloudinary';
 import fs from "fs";
+import { extractPublicId } from 'cloudinary-build-url'
 
 
 cloudinary.config({ 
@@ -32,18 +33,19 @@ const uploadOnCloudinary = async (localFilePath) => {
 
 
 const deleteImageOnCloudinary = async (filePath) => {
+    let resp = "error"
     try {
         if (!filePath) return null
+
+        // extracting public_id from user avatar image path.
+        const publicId = extractPublicId(filePath)
         //delete the file on cloudinary
-        const response = await cloudinary.uploader.destroy(filePath);
-        if (response?.result === "ok") {
-            console.log("Avatar image removed from cloudinary seccessfully.")
-        } else {
-            console.log(`unable to remove avatar due to ${response}`)
-        }
+        const response = await cloudinary.uploader.destroy(publicId);
+        resp = response?.ok
     } catch (error) {
         console.log(error?.message)
     }
+    return resp
 }
 
 
